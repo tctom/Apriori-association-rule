@@ -16,6 +16,12 @@ featureToIndex = {}
 minsupp = 0.03
 minconf = 0.25
 allFreq = defaultdict(int)
+ONESIZE = 2002    # 2002 choose 1
+TWOSIZE = 2003001   # 2002 choose 2
+THRSIZE = 1335334000    # 2002 choose 3
+totalConsidered = 0
+totalInfreq = 0
+
 def regex_split(s):
 	rgx = re.compile("([\w][\w']*\w)")
 	return rgx.findall(s)
@@ -44,16 +50,32 @@ def loadcsv(filename):
 	return dataset
 
 def subsets(arr):
-    return chain(*[combinations(arr, i + 1) for i, a in enumerate(arr)])
+	return chain(*[combinations(arr, i + 1) for i, a in enumerate(arr)])
 
-def getMinSuppMatch (D, minsupp, itemset_arr, allFreq):
-	print "Itemsets length considered: " + str(len(itemset_arr))
+def kminusonesubsets(arr, k):
+	return chain(*[combinations(arr, k-1)])
+
+def getMinSuppMatch (D, minsupp, itemset_arr, allFreq, previousL, k):
+	global totalConsidered
+	global totalInfreq
+	print "Itemset length before candidate pruning: " + str(len(itemset_arr))
+	# candidate pruning
+	pruned_itemset_arr = set(itemset_arr)
+	if previousL is not None:
+		for itemset in itemset_arr:
+			kminusone_subsets = map(frozenset, [x for x in kminusonesubsets(itemset, k)])
+			kminusone_subsets = set(kminusone_subsets)
+			if not kminusone_subsets.issubset(previousL):
+				pruned_itemset_arr.remove(itemset)
+	print "Itemsets length considered (after prunn): " + str(len(pruned_itemset_arr))
+	totalConsidered = len(pruned_itemset_arr) + totalConsidered
 	C = defaultdict(int)
-	for itemset in itemset_arr:
+	for itemset in pruned_itemset_arr:
 		for transaction in D:
 			if itemset.issubset(transaction):
 				C[itemset] += 1
-				allFreq [itemset] += 1
+				allFreq[itemset] += 1
+	
 	L_itemset = set()
 	# prune out stuffs
 	for itemset, count in C.items():
@@ -61,7 +83,9 @@ def getMinSuppMatch (D, minsupp, itemset_arr, allFreq):
 		if supp >= minsupp:
 			L_itemset.add(itemset)
 	print "Itemsets length considered frequent: " + str(len(L_itemset))
-	print "Itemsets length considered infrequent: " + str(len(itemset_arr) - len(L_itemset))
+	print "Itemsets length considered infrequent: " + str(len(pruned_itemset_arr) - len(L_itemset))
+	totalInfreq += len(pruned_itemset_arr) - len(L_itemset)
+	print "------------------------------------------------"
 	return L_itemset
 
 def selfJoin(itemset_arr ,length):
@@ -72,28 +96,29 @@ def getSupp(item, allFreq, D):
 
 
 def FrequentItemsetGeneration (D, minsupp, selectedWords):
-	itemset_arr = set()  # build 1-itemsets
+	globalL = dict()
+	itemset_arr = set()  # build 1-itemsets (candidate itemset)
 	for word in set(selectedWords):
 		itemset_arr.add(frozenset([word]))
 	itemset_arr.add(frozenset(["isPositive"]))
 	itemset_arr.add(frozenset(["isNegative"]))
 	k = 1
 	
-	currentL_itemset = getMinSuppMatch(D, minsupp, itemset_arr, allFreq)
-	#print currentL   # L1
-	globalL = dict()
-	print currentL_itemset
+	currentL_itemset = getMinSuppMatch(D, minsupp, itemset_arr, allFreq, None, k)
+	globalL[k] = currentL_itemset
+	#print currentL_itemset
+
 	k = 2
 	while (currentL_itemset!=set([]) and k <= 3):
-		globalL[k-1] = currentL_itemset
-		currentL_itemset = selfJoin(currentL_itemset, k)
-		currentL_itemset = getMinSuppMatch(D, minsupp, currentL_itemset, allFreq)
-		print currentL_itemset
+		itemset_arr = selfJoin(currentL_itemset, k)
+		currentL_itemset = getMinSuppMatch(D, minsupp, itemset_arr, allFreq, globalL[k-1], k)
+		globalL[k] = currentL_itemset
+		# print currentL_itemset
 		k=k+1
-	toRetItems = []
+	L = []
 	for key, value in globalL.items():
-		toRetItems.extend([(tuple(item), getSupp(item, allFreq, D)) for item in value])
-	return toRetItems, globalL
+		L.append([(tuple(item), getSupp(item, allFreq, D)) for item in value])
+	return L, globalL
 
 
 def RuleGeneration (D, globalL, minconf):
@@ -101,12 +126,12 @@ def RuleGeneration (D, globalL, minconf):
 	for key, value in globalL.items()[1:]:
 		for item in value:
 			_subsets = map(frozenset, [x for x in subsets(item)])
-			for element in _subsets:
-				remain = item.difference(element)
-				if len(remain) > 0:
-					confidence =  getSupp(item, allFreq, D) / getSupp(element, allFreq, D)
+			for antecedent in _subsets:
+				consequence = item.difference(antecedent)
+				if len(consequence) > 0:
+					confidence =  getSupp(item, allFreq, D) / getSupp(antecedent, allFreq, D)
 					if confidence >= minconf:
-						Rules.append(((tuple(element), tuple(remain)), confidence))
+						Rules.append(((tuple(antecedent), tuple(consequence)), confidence, getSupp(item, allFreq, D)))
 	return Rules
 
 
@@ -172,4 +197,28 @@ if __name__ == '__main__':
 	R = sorted(R, key = getSortKey, reverse=True)
 	topRules = R[:30]
 
-	print topRules
+
+	# printings
+	# size of pattern space
+	size = ONESIZE + TWOSIZE + THRSIZE
+	print "Size of pattern space: " + str(size)
+
+	# Pruning ratio
+	ratio = float(size - totalConsidered) / size
+	print "Pruning ratio: " + str(ratio)
+
+	# false alarm rate
+	far = float(totalInfreq) / totalConsidered
+	print "False alarm rate: " + str(far)
+
+	for i in range(len(L)):
+		print str(i+1) + "-itemset:"
+		print L[i]
+		print "-----------------------------------------------"
+	print "Top 30 Rules"
+	for rule in topRules:
+		antecedent = rule[0][0]
+		consequence = rule[0][1]
+		confidence = rule[1]
+		supp = rule[2]
+		print "IF " + str(antecedent) + " THEN " + str(consequence) + ". Confidence is: " + str(confidence) + ", supp is: " + str(supp)
