@@ -18,7 +18,7 @@ featureToIndex = {}
 minsupp = 0.03
 minconf = 0.25
 alpha = 0.05
-p_value = alpha/526
+p_value = alpha/682
 allFreq = defaultdict(int)
 ONESIZE = 2002    # 2002 choose 1
 TWOSIZE = 2003001   # 2002 choose 2
@@ -72,6 +72,14 @@ def getMinSuppMatch (D, minsupp, itemset_arr, allFreq, previousL, k):
 			if not kminusone_subsets.issubset(previousL):
 				pruned_itemset_arr.remove(itemset)
 	print "Itemsets length considered (after prunn): " + str(len(pruned_itemset_arr))
+	if k==1:
+		ratio = float(ONESIZE - len(pruned_itemset_arr)) / ONESIZE
+	if k==2:
+		ratio = float(TWOSIZE - len(pruned_itemset_arr)) / TWOSIZE
+	if k==3:
+		ratio = float(THRSIZE - len(pruned_itemset_arr)) / THRSIZE
+	print str(k) + "-itemset Pruning ratio: " + str(ratio)
+
 	totalConsidered = len(pruned_itemset_arr) + totalConsidered
 	C = defaultdict(int)
 	for itemset in pruned_itemset_arr:
@@ -88,6 +96,8 @@ def getMinSuppMatch (D, minsupp, itemset_arr, allFreq, previousL, k):
 			L_itemset.add(itemset)
 	print "Itemsets length considered frequent: " + str(len(L_itemset))
 	print "Itemsets length considered infrequent: " + str(len(pruned_itemset_arr) - len(L_itemset))
+	far = float(len(pruned_itemset_arr) - len(L_itemset)) / len(pruned_itemset_arr)
+	print str(k) + "-itemset False alarm rate: " + str(far)
 	totalInfreq += len(pruned_itemset_arr) - len(L_itemset)
 	print "------------------------------------------------"
 	return L_itemset
@@ -147,9 +157,9 @@ def RuleGeneration (D, globalL, minconf):
 						# print "_AB: " + str(_AB)
 						_A_B = len(D) - AB - A_B - _AB
 						# print "_A_B: " + str(_A_B)
-						chistatistics = chi2_contingency([[AB,A_B],[_AB,_A_B]])
+						chistatistics = chi2_contingency(np.array([[AB,A_B],[_AB,_A_B]]))
 						if chistatistics[1] <= p_value:
-							Rules.append(((tuple(antecedent), tuple(consequence)), chistatistics[0], getSupp(item, allFreq, D), getSupp(antecedent, allFreq, D), getSupp(consequence, allFreq, D)))
+							Rules.append(((tuple(antecedent), tuple(consequence)), chistatistics[0], getSupp(item, allFreq, D), getSupp(antecedent, allFreq, D), getSupp(consequence, allFreq, D), chistatistics[1]))
 					else:
 						confidence =  getSupp(item, allFreq, D) / getSupp(antecedent, allFreq, D)
 						if confidence >= minconf:
@@ -217,6 +227,7 @@ if __name__ == '__main__':
 	def getSortKey(item): 
 		return item[1]
 	R = sorted(R, key = getSortKey, reverse=True)
+	print "Size of association rule set: " + str(len(R))
 	topRules = R[:30]
 
 
@@ -233,17 +244,28 @@ if __name__ == '__main__':
 	far = float(totalInfreq) / totalConsidered
 	print "False alarm rate: " + str(far)
 
-	for i in range(len(L)):
-		print str(i+1) + "-itemset:"
-		print L[i]
-		print "-----------------------------------------------"
+	# for i in range(len(L)):
+	# 	print str(i+1) + "-itemset:"
+	# 	print L[i]
+	# 	print "-----------------------------------------------"
 	print "Top 30 Rules"
 	for rule in topRules:
-		antecedent = rule[0][0]
-		consequence = rule[0][1]
-		confidence = rule[1]
-		supp = rule[2]
-		antSupp = rule[3]
-		conseSupp = rule[4]
-		print "IF " + str(antecedent) + " THEN " + str(consequence) + ". Confidence is: " + str(confidence) + ", supp is: " + str(supp)
-		print "antSupp: " + str(antSupp) + ". ConseSupp: " + str(conseSupp)
+		if not chisquaremode:
+			antecedent = rule[0][0]
+			consequence = rule[0][1]
+			confidence = rule[1]
+			supp = rule[2]
+			antSupp = rule[3]
+			conseSupp = rule[4]
+			print "IF " + str(antecedent) + " THEN " + str(consequence) + ". Confidence is: " + str(confidence) + ", supp is: " + str(supp)
+			print "antSupp: " + str(antSupp) + ". ConseSupp: " + str(conseSupp)
+		else:
+			antecedent = rule[0][0]
+			consequence = rule[0][1]
+			x2 = rule[1]
+			supp = rule[2]
+			antSupp = rule[3]
+			conseSupp = rule[4]
+			p_value = rule[5]
+			print "IF " + str(antecedent) + " THEN " + str(consequence) + ". Chi square value: is: " + str(x2) + ", p value: " + str(p_value) +", supp is: " + str(supp)
+			print "antSupp: " + str(antSupp) + ". ConseSupp: " + str(conseSupp)
