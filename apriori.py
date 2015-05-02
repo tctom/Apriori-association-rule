@@ -9,19 +9,23 @@ import numpy as np
 import matplotlib.pyplot as plt
 from collections import defaultdict
 from itertools import chain, combinations
+from scipy.stats import chi2_contingency
+
 #punctuations
 punc = set(string.punctuation)
 freq = {} #freq dic
 featureToIndex = {}
 minsupp = 0.03
 minconf = 0.25
+alpha = 0.05
+p_value = alpha/526
 allFreq = defaultdict(int)
 ONESIZE = 2002    # 2002 choose 1
 TWOSIZE = 2003001   # 2002 choose 2
 THRSIZE = 1335334000    # 2002 choose 3
 totalConsidered = 0
 totalInfreq = 0
-
+chisquaremode = True
 def regex_split(s):
 	rgx = re.compile("([\w][\w']*\w)")
 	return rgx.findall(s)
@@ -125,13 +129,31 @@ def RuleGeneration (D, globalL, minconf):
 	Rules = []
 	for key, value in globalL.items()[1:]:
 		for item in value:
-			_subsets = map(frozenset, [x for x in subsets(item)])
-			for antecedent in _subsets:
-				consequence = item.difference(antecedent)
+			#_subsets = map(frozenset, [x for x in subsets(item)])
+			for consequence in item:
+				consequence = frozenset([consequence])
+				antecedent = item.difference(consequence)
 				if len(consequence) > 0:
-					confidence =  getSupp(item, allFreq, D) / getSupp(antecedent, allFreq, D)
-					if confidence >= minconf:
-						Rules.append(((tuple(antecedent), tuple(consequence)), confidence, getSupp(item, allFreq, D)))
+					if (chisquaremode):
+						#calculate chi square value
+						#A->B
+						A = getSupp(antecedent, allFreq, D)*len(D)
+						B = getSupp(consequence, allFreq, D)*len(D)
+						AB = getSupp(item, allFreq, D)*len(D)
+						# print "AB: " + str(AB)
+						A_B = A-AB
+						# print "A_B: " + str(A_B)
+						_AB = B-AB
+						# print "_AB: " + str(_AB)
+						_A_B = len(D) - AB - A_B - _AB
+						# print "_A_B: " + str(_A_B)
+						chistatistics = chi2_contingency([[AB,A_B],[_AB,_A_B]])
+						if chistatistics[1] <= p_value:
+							Rules.append(((tuple(antecedent), tuple(consequence)), chistatistics[0], getSupp(item, allFreq, D), getSupp(antecedent, allFreq, D), getSupp(consequence, allFreq, D)))
+					else:
+						confidence =  getSupp(item, allFreq, D) / getSupp(antecedent, allFreq, D)
+						if confidence >= minconf:
+							Rules.append(((tuple(antecedent), tuple(consequence)), confidence, getSupp(item, allFreq, D), getSupp(antecedent, allFreq, D), getSupp(consequence, allFreq, D)))
 	return Rules
 
 
@@ -154,7 +176,7 @@ if __name__ == '__main__':
 		classlabel=int(dataset[i][classlabelindex-1])
 		cleanStr = clearpunc(dataset[i][7])
 		lowerStr=[s.lower() for s in string.split(cleanStr)]
-		review.append(set(lowerStr))  # might cause problem ???????????????????????
+		review.append(lowerStr)  # might cause problem ???????????????????????
 		classlabelset.append(classlabel)
 		calcfreq(lowerStr)
 	#sort words in descending order
@@ -221,4 +243,7 @@ if __name__ == '__main__':
 		consequence = rule[0][1]
 		confidence = rule[1]
 		supp = rule[2]
+		antSupp = rule[3]
+		conseSupp = rule[4]
 		print "IF " + str(antecedent) + " THEN " + str(consequence) + ". Confidence is: " + str(confidence) + ", supp is: " + str(supp)
+		print "antSupp: " + str(antSupp) + ". ConseSupp: " + str(conseSupp)
